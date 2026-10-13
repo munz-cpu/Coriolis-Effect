@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 public sealed class CoriolisSimulator : MonoBehaviour
@@ -9,6 +10,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
     [SerializeField] private Image diskBackingImage;
     [SerializeField] private Sprite earthSprite;
     [SerializeField] private Toggle earthToggle;
+    [SerializeField] private Toggle trajectoryToggle;
     [SerializeField] private RectTransform[] pins = new RectTransform[2];
     [SerializeField] private Button[] fireButtons = new Button[2];
     [SerializeField] private Button[] viewButtons = new Button[3];
@@ -33,6 +35,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
     private int viewPin = -1;
     private float angle;
     private float viewStartAngle;
+    private bool paused;
 
     private struct Shot
     {
@@ -56,8 +59,11 @@ public sealed class CoriolisSimulator : MonoBehaviour
             pinStartPositions[i] = pins[i].anchoredPosition;
 
         shots = new Shot[projectilePool.Length];
-        trajectory.Initialize(shots.Length, canvasRoot, diskCenter);
+        trajectory.Initialize(shots.Length, canvasRoot, diskCenter,
+            Mathf.Min(disk.rect.width, disk.rect.height) * .5f);
+        trajectory.SetRecording(trajectoryToggle.isOn);
         trajectory.SetView(false, 0f);
+        trajectoryToggle.onValueChanged.AddListener(trajectory.SetRecording);
         foreach (RectTransform projectile in projectilePool)
             projectile.gameObject.SetActive(false);
 
@@ -84,11 +90,17 @@ public sealed class CoriolisSimulator : MonoBehaviour
         if (rotationSpeedSlider != null) rotationSpeedSlider.onValueChanged.RemoveListener(SetRotationSpeed);
         if (projectileSpeedSlider != null) projectileSpeedSlider.onValueChanged.RemoveListener(SetProjectileSpeed);
         if (earthToggle != null) earthToggle.onValueChanged.RemoveListener(SetEarthBackground);
+        if (trajectoryToggle != null) trajectoryToggle.onValueChanged.RemoveListener(trajectory.SetRecording);
     }
 
     private void Update()
     {
+        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+            paused = !paused;
+        if (paused) return;
+
         angle += degreesPerSecond * Time.deltaTime;
+        trajectory.SetAngle(angle);
         float visibleAngle = angle - ViewRotation();
         disk.localRotation = diskStartRotation * Quaternion.Euler(0, 0, visibleAngle);
         disk.position = canvasRoot.TransformPoint(ViewPoint(diskCenter));
@@ -229,7 +241,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
 
     private void Fire(int source)
     {
-        if (!placed[0] || !placed[1]) return;
+        if (paused || !placed[0] || !placed[1]) return;
 
         Vector2 start = PhysicalPin(source);
         Vector2 target = PhysicalPin(1 - source);
