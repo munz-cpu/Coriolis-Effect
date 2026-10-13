@@ -63,9 +63,9 @@ public sealed class CoriolisSimulator : MonoBehaviour
 
         fireButtons[0].onClick.AddListener(FireFromPinOne);
         fireButtons[1].onClick.AddListener(FireFromPinTwo);
-        viewButtons[0].onClick.AddListener(SetGlobalView);
-        viewButtons[1].onClick.AddListener(SetRedView);
-        viewButtons[2].onClick.AddListener(SetBlueView);
+        //viewButtons[0].onClick.AddListener(SetGlobalView);
+        //viewButtons[1].onClick.AddListener(SetRedView);
+        //viewButtons[2].onClick.AddListener(SetBlueView);
         rotationSpeedSlider.SetValueWithoutNotify(degreesPerSecond);
         projectileSpeedSlider.SetValueWithoutNotify(ballSpeed);
         rotationSpeedSlider.onValueChanged.AddListener(SetRotationSpeed);
@@ -191,9 +191,9 @@ public sealed class CoriolisSimulator : MonoBehaviour
 
     private void UpdateViewButtons()
     {
-        viewButtons[0].interactable = viewPin != -1;
-        viewButtons[1].interactable = placed[0] && viewPin != 0;
-        viewButtons[2].interactable = placed[1] && viewPin != 1;
+        //viewButtons[0].interactable = viewPin != -1;
+        //viewButtons[1].interactable = placed[0] && viewPin != 0;
+        //viewButtons[2].interactable = placed[1] && viewPin != 1;
     }
 
     private void SetView(int pin)
@@ -246,7 +246,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
             {
                 active = true,
                 position = start,
-                velocity = direction.normalized * ballSpeed + tangentialVelocity
+                velocity = direction.normalized * ballSpeed
             };
             projectilePool[i].position = canvasRoot.TransformPoint(ViewPoint(start));
             projectilePool[i].gameObject.SetActive(true);
