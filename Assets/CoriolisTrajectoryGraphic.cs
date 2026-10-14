@@ -64,6 +64,16 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
         AddPoint(index, position, angle);
     }
 
+    public void EndShot(int index)
+    {
+        if (counts == null) return;
+        counts[index] = 0;
+        hasSamples = false;
+        for (int i = 0; i < counts.Length; i++)
+            hasSamples |= counts[i] > 0;
+        SetVerticesDirty();
+    }
+
     public void AddPoint(int index, Vector2 position, float angle)
     {
         if (!recording) return;

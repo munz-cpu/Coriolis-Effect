@@ -123,6 +123,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
             {
                 shot.active = false;
                 projectilePool[i].gameObject.SetActive(false);
+                trajectory.EndShot(i);
             }
             else
             {
