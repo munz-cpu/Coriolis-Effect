@@ -5,9 +5,14 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
 {
     private const int SamplesPerShot = 320;
     private const float LineHalfWidth = 3f;
+    private const float DashHalfWidth = 2f;
+    private const float DashLength = 5f;
+    private const float DashPeriod = 14f;
 
     private Vector2[,] positions;
     private float[,] angles;
+    private float[,] sampleTimes;
+    private float[,] pathDistances;
     private int[] counts;
     private int[] next;
     private RectTransform canvasRoot;
@@ -18,12 +23,16 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
     private float currentAngle;
     private bool recording;
     private bool hasSamples;
-    [SerializeField] private Color flightTrailColor = new Color(.75f, .08f, .58f, .95f);
+    private float elapsedTime;
+    private float lifetime = 2f;
+    [SerializeField] private Color flightTrailColor = new Color(.15f, .72f, 1f, 1f);
 
     public void Initialize(int shotCount, RectTransform canvas, Vector2 center, float radius)
     {
         positions = new Vector2[shotCount, SamplesPerShot];
         angles = new float[shotCount, SamplesPerShot];
+        sampleTimes = new float[shotCount, SamplesPerShot];
+        pathDistances = new float[shotCount, SamplesPerShot];
         counts = new int[shotCount];
         next = new int[shotCount];
         canvasRoot = canvas;
@@ -45,6 +54,25 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
         if (recording && hasSamples) SetVerticesDirty();
     }
 
+    public void SetLifetime(float seconds)
+    {
+        lifetime = Mathf.Max(0f, seconds);
+        if (lifetime <= 0f)
+        {
+            if (counts != null) System.Array.Clear(counts, 0, counts.Length);
+            hasSamples = false;
+            SetVerticesDirty();
+            return;
+        }
+        PruneExpiredPoints();
+    }
+
+    public void AdvanceTime(float deltaTime)
+    {
+        elapsedTime += deltaTime;
+        PruneExpiredPoints();
+    }
+
     public void SetRecording(bool enabled)
     {
         recording = enabled;
@@ -58,28 +86,43 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
 
     public void BeginShot(int index, Vector2 position, float angle)
     {
-        if (!recording) return;
+        if (!recording || lifetime <= 0f) return;
         counts[index] = 0;
         next[index] = 0;
         AddPoint(index, position, angle);
     }
 
-    public void EndShot(int index)
+    public bool HasSamples(int index) => counts != null && counts[index] > 0;
+
+    private void PruneExpiredPoints()
     {
         if (counts == null) return;
-        counts[index] = 0;
         hasSamples = false;
+        bool removed = false;
         for (int i = 0; i < counts.Length; i++)
+        {
+            while (counts[i] > 0)
+            {
+                int oldest = (next[i] - counts[i] + SamplesPerShot) % SamplesPerShot;
+                if (elapsedTime - sampleTimes[i, oldest] < lifetime) break;
+                counts[i]--;
+                removed = true;
+            }
             hasSamples |= counts[i] > 0;
-        SetVerticesDirty();
+        }
+        if (removed) SetVerticesDirty();
     }
 
     public void AddPoint(int index, Vector2 position, float angle)
     {
-        if (!recording) return;
+        if (!recording || lifetime <= 0f) return;
         int slot = next[index];
+        int previous = (slot - 1 + SamplesPerShot) % SamplesPerShot;
+        pathDistances[index, slot] = counts[index] == 0 ? 0f :
+            pathDistances[index, previous] + Vector2.Distance(positions[index, previous], position);
         positions[index, slot] = position;
         angles[index, slot] = angle;
+        sampleTimes[index, slot] = elapsedTime;
         next[index] = (slot + 1) % SamplesPerShot;
         counts[index] = Mathf.Min(counts[index] + 1, SamplesPerShot);
         hasSamples = true;
@@ -109,19 +152,38 @@ public sealed class CoriolisTrajectoryGraphic : MaskableGraphic
                 if (ClipToDisk(ref previousDisk, ref currentDisk))
                     AddLine(mesh, canvasToGraphic.MultiplyPoint3x4(previousDisk),
                         canvasToGraphic.MultiplyPoint3x4(currentDisk), diskTrailColor);
-                AddLine(mesh, canvasToGraphic.MultiplyPoint3x4(previousBall),
-                    canvasToGraphic.MultiplyPoint3x4(currentBall), ballTrailColor);
+                int previousSlot = (slot - 1 + SamplesPerShot) % SamplesPerShot;
+                AddDashedLine(mesh, canvasToGraphic.MultiplyPoint3x4(previousBall),
+                    canvasToGraphic.MultiplyPoint3x4(currentBall),
+                    pathDistances[shot, previousSlot], pathDistances[shot, slot], ballTrailColor);
                 previousBall = currentBall;
                 previousDisk = nextDisk;
             }
         }
     }
 
-    private static void AddLine(VertexHelper mesh, Vector2 start, Vector2 end, Color32 lineColor)
+    private static void AddDashedLine(VertexHelper mesh, Vector2 start, Vector2 end,
+        float startDistance, float endDistance, Color32 lineColor)
+    {
+        if (endDistance - startDistance <= .01f) return;
+        for (float dash = Mathf.Floor(startDistance / DashPeriod) * DashPeriod;
+             dash < endDistance; dash += DashPeriod)
+        {
+            float from = Mathf.Max(startDistance, dash);
+            float to = Mathf.Min(endDistance, dash + DashLength);
+            if (to <= from) continue;
+            float length = endDistance - startDistance;
+            AddLine(mesh, Vector2.Lerp(start, end, (from - startDistance) / length),
+                Vector2.Lerp(start, end, (to - startDistance) / length), lineColor, DashHalfWidth);
+        }
+    }
+
+    private static void AddLine(VertexHelper mesh, Vector2 start, Vector2 end,
+        Color32 lineColor, float halfWidth = LineHalfWidth)
     {
         Vector2 direction = end - start;
         if (direction.sqrMagnitude <= .01f) return;
-        Vector2 side = new Vector2(-direction.y, direction.x).normalized * LineHalfWidth;
+        Vector2 side = new Vector2(-direction.y, direction.x).normalized * halfWidth;
         int vertex = mesh.currentVertCount;
         mesh.AddVert(start - side, lineColor, Vector2.zero);
         mesh.AddVert(start + side, lineColor, Vector2.zero);

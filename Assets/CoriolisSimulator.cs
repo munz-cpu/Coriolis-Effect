@@ -10,12 +10,12 @@ public sealed class CoriolisSimulator : MonoBehaviour
     [SerializeField] private Image diskBackingImage;
     [SerializeField] private Sprite earthSprite;
     [SerializeField] private Toggle earthToggle;
-    [SerializeField] private Toggle trajectoryToggle;
     [SerializeField] private RectTransform[] pins = new RectTransform[2];
     [SerializeField] private Button[] fireButtons = new Button[2];
     [SerializeField] private Button[] viewButtons = new Button[3];
     [SerializeField] private Slider rotationSpeedSlider;
     [SerializeField] private Slider projectileSpeedSlider;
+    [SerializeField] private Slider trajectoryLifetimeSlider;
     [SerializeField] private RectTransform[] projectilePool = new RectTransform[20];
     [SerializeField] private CoriolisTrajectoryGraphic trajectory;
     [SerializeField] private float degreesPerSecond = 35f;
@@ -36,6 +36,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
     private float angle;
     private float viewStartAngle;
     private bool paused;
+    private int nextTrailSlot;
 
     private struct Shot
     {
@@ -43,6 +44,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
         public Vector2 position;
         public Vector2 velocity;
         public float age;
+        public int trailSlot;
     }
 
     private void Awake()
@@ -61,9 +63,9 @@ public sealed class CoriolisSimulator : MonoBehaviour
         shots = new Shot[projectilePool.Length];
         trajectory.Initialize(shots.Length, canvasRoot, diskCenter,
             Mathf.Min(disk.rect.width, disk.rect.height) * .5f);
-        trajectory.SetRecording(trajectoryToggle.isOn);
+        trajectory.SetRecording(true);
+        trajectory.SetLifetime(trajectoryLifetimeSlider.value);
         trajectory.SetView(false, 0f);
-        trajectoryToggle.onValueChanged.AddListener(trajectory.SetRecording);
         foreach (RectTransform projectile in projectilePool)
             projectile.gameObject.SetActive(false);
 
@@ -76,6 +78,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
         projectileSpeedSlider.SetValueWithoutNotify(ballSpeed);
         rotationSpeedSlider.onValueChanged.AddListener(SetRotationSpeed);
         projectileSpeedSlider.onValueChanged.AddListener(SetProjectileSpeed);
+        trajectoryLifetimeSlider.onValueChanged.AddListener(trajectory.SetLifetime);
         UpdateButtons();
         UpdateViewButtons();
     }
@@ -89,8 +92,8 @@ public sealed class CoriolisSimulator : MonoBehaviour
         if (viewButtons[2] != null) viewButtons[2].onClick.RemoveListener(SetBlueView);
         if (rotationSpeedSlider != null) rotationSpeedSlider.onValueChanged.RemoveListener(SetRotationSpeed);
         if (projectileSpeedSlider != null) projectileSpeedSlider.onValueChanged.RemoveListener(SetProjectileSpeed);
+        if (trajectoryLifetimeSlider != null) trajectoryLifetimeSlider.onValueChanged.RemoveListener(trajectory.SetLifetime);
         if (earthToggle != null) earthToggle.onValueChanged.RemoveListener(SetEarthBackground);
-        if (trajectoryToggle != null) trajectoryToggle.onValueChanged.RemoveListener(trajectory.SetRecording);
     }
 
     private void Update()
@@ -99,6 +102,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
             paused = !paused;
         if (paused) return;
 
+        trajectory.AdvanceTime(Time.deltaTime);
         angle += degreesPerSecond * Time.deltaTime;
         trajectory.SetAngle(angle);
         float visibleAngle = angle - ViewRotation();
@@ -123,12 +127,11 @@ public sealed class CoriolisSimulator : MonoBehaviour
             {
                 shot.active = false;
                 projectilePool[i].gameObject.SetActive(false);
-                trajectory.EndShot(i);
             }
             else
             {
                 projectilePool[i].position = canvasRoot.TransformPoint(ViewPoint(shot.position));
-                trajectory.AddPoint(i, shot.position, angle);
+                trajectory.AddPoint(shot.trailSlot, shot.position, angle);
             }
             shots[i] = shot;
         }
@@ -255,16 +258,39 @@ public sealed class CoriolisSimulator : MonoBehaviour
         for (int i = 0; i < shots.Length; i++)
         {
             if (shots[i].active) continue;
+            int trailSlot = FindTrailSlot();
             shots[i] = new Shot
             {
                 active = true,
                 position = start,
-                velocity = direction.normalized * ballSpeed
+                velocity = direction.normalized * ballSpeed,
+                trailSlot = trailSlot
             };
             projectilePool[i].position = canvasRoot.TransformPoint(ViewPoint(start));
             projectilePool[i].gameObject.SetActive(true);
-            trajectory.BeginShot(i, start, angle);
+            trajectory.BeginShot(trailSlot, start, angle);
             break;
         }
+    }
+
+    private int FindTrailSlot()
+    {
+        int fallback = -1;
+        for (int offset = 0; offset < shots.Length; offset++)
+        {
+            int slot = (nextTrailSlot + offset) % shots.Length;
+            bool inUse = false;
+            for (int i = 0; i < shots.Length; i++)
+                inUse |= shots[i].active && shots[i].trailSlot == slot;
+            if (inUse) continue;
+            if (!trajectory.HasSamples(slot))
+            {
+                nextTrailSlot = (slot + 1) % shots.Length;
+                return slot;
+            }
+            if (fallback < 0) fallback = slot;
+        }
+        nextTrailSlot = (fallback + 1) % shots.Length;
+        return fallback;
     }
 }
