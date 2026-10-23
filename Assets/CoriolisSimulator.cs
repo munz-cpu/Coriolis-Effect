@@ -5,6 +5,8 @@ using UnityEngine.UI;
 
 public sealed class CoriolisSimulator : MonoBehaviour
 {
+    private const float PinSnapDistance = 18f;
+
     [SerializeField] private RectTransform canvasRoot;
     [SerializeField] private RectTransform disk;
     [SerializeField] private Image diskBackingImage;
@@ -171,24 +173,49 @@ public sealed class CoriolisSimulator : MonoBehaviour
     public void Drag(int index, PointerEventData data)
     {
         if (draggingPin != index) return;
-        pins[index].position = canvasRoot.TransformPoint(CanvasPoint(data));
+        if (TryGetPinPosition(data, out Vector2 normalized, out bool snapped) && snapped)
+        {
+            Vector2 local = disk.rect.center + Vector2.Scale(normalized, disk.rect.size * .5f);
+            pins[index].position = disk.TransformPoint(local);
+        }
+        else pins[index].position = canvasRoot.TransformPoint(CanvasPoint(data));
+    }
+
+    private bool TryGetPinPosition(PointerEventData data, out Vector2 normalized, out bool snapped)
+    {
+        snapped = false;
+        normalized = Vector2.zero;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                disk, data.position, data.pressEventCamera, out Vector2 point)) return false;
+
+        Vector2 halfSize = disk.rect.size * .5f;
+        Vector2 fromCenter = point - disk.rect.center;
+        normalized = new Vector2(fromCenter.x / halfSize.x, fromCenter.y / halfSize.y);
+
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed))
+        {
+            float radius = fromCenter.magnitude;
+            float ringSpacing = Mathf.Min(halfSize.x, halfSize.y) / 3f;
+            float ring = Mathf.Clamp(Mathf.Round(radius / ringSpacing), 0f, 3f) * ringSpacing;
+            if (Mathf.Abs(radius - ring) <= PinSnapDistance)
+            {
+                normalized = ring == 0f ? Vector2.zero : normalized * (ring / radius);
+                snapped = true;
+            }
+        }
+
+        return snapped || normalized.sqrMagnitude <= 1f;
     }
 
     public void EndDrag(int index, PointerEventData data)
     {
         if (draggingPin != index) return;
 
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                disk, data.position, data.pressEventCamera, out Vector2 point))
+        if (TryGetPinPosition(data, out Vector2 normalized, out _))
         {
-            Vector2 halfSize = disk.rect.size * .5f;
-            Vector2 fromCenter = point - disk.rect.center;
-            Vector2 normalized = new Vector2(fromCenter.x / halfSize.x, fromCenter.y / halfSize.y);
-            if (normalized.sqrMagnitude <= 1f)
-            {
-                pinOnDisk[index] = normalized;
-                placed[index] = true;
-            }
+            pinOnDisk[index] = normalized;
+            placed[index] = true;
         }
 
         draggingPin = -1;
@@ -276,22 +303,32 @@ public sealed class CoriolisSimulator : MonoBehaviour
         Vector2 radius = start - diskCenter;
         Vector2 tangentialVelocity = new Vector2(-radius.y, radius.x) * angularSpeed;
 
+        int projectileIndex = -1;
+        int oldestIndex = 0;
         for (int i = 0; i < shots.Length; i++)
         {
-            if (shots[i].active) continue;
-            int trailSlot = FindTrailSlot();
-            shots[i] = new Shot
+            if (!shots[i].active)
             {
-                active = true,
-                position = start,
-                velocity = direction.normalized * ballSpeed,
-                trailSlot = trailSlot
-            };
-            projectilePool[i].position = canvasRoot.TransformPoint(ViewPoint(start));
-            projectilePool[i].gameObject.SetActive(true);
-            trajectory.BeginShot(trailSlot, start, angle);
-            break;
+                projectileIndex = i;
+                break;
+            }
+            if (shots[i].age > shots[oldestIndex].age) oldestIndex = i;
         }
+
+        if (projectileIndex < 0) projectileIndex = oldestIndex;
+        int trailSlot = shots[projectileIndex].active
+            ? shots[projectileIndex].trailSlot
+            : FindTrailSlot();
+        shots[projectileIndex] = new Shot
+        {
+            active = true,
+            position = start,
+            velocity = direction.normalized * ballSpeed,
+            trailSlot = trailSlot
+        };
+        projectilePool[projectileIndex].position = canvasRoot.TransformPoint(ViewPoint(start));
+        projectilePool[projectileIndex].gameObject.SetActive(true);
+        trajectory.BeginShot(trailSlot, start, angle);
     }
 
     private int FindTrailSlot()
