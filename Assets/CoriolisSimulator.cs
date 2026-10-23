@@ -16,6 +16,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
     [SerializeField] private Slider rotationSpeedSlider;
     [SerializeField] private Slider projectileSpeedSlider;
     [SerializeField] private Slider trajectoryLifetimeSlider;
+    [SerializeField] private Text[] pinSpeedLabels = new Text[2];
     [SerializeField] private RectTransform[] projectilePool = new RectTransform[20];
     [SerializeField] private CoriolisTrajectoryGraphic trajectory;
     [SerializeField] private float degreesPerSecond = 35f;
@@ -81,6 +82,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
         trajectoryLifetimeSlider.onValueChanged.AddListener(trajectory.SetLifetime);
         UpdateButtons();
         UpdateViewButtons();
+        UpdatePinSpeeds();
     }
 
     private void OnDestroy()
@@ -197,6 +199,7 @@ public sealed class CoriolisSimulator : MonoBehaviour
         else pins[index].anchoredPosition = pinStartPositions[index];
         UpdateButtons();
         UpdateViewButtons();
+        UpdatePinSpeeds();
     }
 
     private void UpdateButtons()
@@ -235,7 +238,25 @@ public sealed class CoriolisSimulator : MonoBehaviour
 
     private void FireFromPinOne() => Fire(0);
     private void FireFromPinTwo() => Fire(1);
-    private void SetRotationSpeed(float value) => degreesPerSecond = value;
+    private void SetRotationSpeed(float value)
+    {
+        degreesPerSecond = value;
+        UpdatePinSpeeds();
+    }
+
+    private void UpdatePinSpeeds()
+    {
+        for (int i = 0; i < pinSpeedLabels.Length; i++)
+        {
+            if (pinSpeedLabels[i] == null) continue;
+            string pinName = i == 0 ? "빨간 핀" : "파란 핀";
+            string speed = placed[i]
+                ? (Mathf.Abs(degreesPerSecond) * Mathf.Deg2Rad *
+                   Vector2.Scale(pinOnDisk[i], disk.rect.size * .5f).magnitude).ToString("F1") + " px/s"
+                : "--";
+            pinSpeedLabels[i].text = pinName + " 속도: " + speed;
+        }
+    }
     private void SetProjectileSpeed(float value) => ballSpeed = value;
     private void SetEarthBackground(bool enabled)
     {
